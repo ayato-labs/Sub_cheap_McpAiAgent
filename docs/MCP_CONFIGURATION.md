@@ -9,7 +9,7 @@ This guide explains how to configure and use the **Sub-cheap-McpAiAgent** server
 - **Ollama (Optional)**: For local LLM support.
 
 ## 2. Environment Variables (.env)
-Create a `.env` file in the project root with the following settings:
+Create a `.env` file in the project root with the following settings. The system uses a multi-phase LLM approach to optimize tokens:
 
 ```env
 # Google AI Studio
@@ -20,8 +20,9 @@ GEMINI_MODEL=gemini-2.5-flash
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=gemma2:9b
 
-# Default Model Selection ('gemini' or 'ollama')
-DEFAULT_MODEL=gemini
+# Role-based Model Selection ('gemini' or 'ollama')
+TRANSLATION_MODEL=gemini  # Used for translating Japanese to English and chunking
+DRAFTING_MODEL=gemini     # Used for context compression and actual code drafting
 ```
 
 ## 3. Claude Desktop Configuration
