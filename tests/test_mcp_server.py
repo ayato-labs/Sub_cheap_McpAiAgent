@@ -22,7 +22,9 @@ def test_clean_code_output_unclosed_markdown():
 @pytest.fixture
 def mock_backend(mocker):
     # Mock call_any to return different values based on the role or just a default
-    return mocker.patch("sub_cheap_mcpaiagent.SubLLMClient.call_any", return_value="def mock_func():\n    return 42")
+    return mocker.patch(
+        "sub_cheap_mcpaiagent.SubLLMClient.call_any", return_value="def mock_func():\n    return 42"
+    )
 
 
 def test_draft_code_full_overwrite(tmp_path, mock_backend):
@@ -41,7 +43,7 @@ def test_draft_code_translation_trigger(tmp_path, mock_backend):
     test_file = tmp_path / "test.py"
     # Instruction contains Japanese
     instruction = "日本語の指示"
-    
+
     # Configure mock to return translation first, then code
     mock_backend.side_effect = ["Translated Instruction", "def translated_func(): pass"]
 
@@ -80,7 +82,6 @@ def test_draft_code_new_directory(tmp_path, mock_backend):
     assert "Successfully wrote to" in result
     assert test_file.exists()
     assert test_file.read_text() == "def mock_func():\n    return 42\n"
-
 
 
 def test_draft_code_invalid_lines(tmp_path):

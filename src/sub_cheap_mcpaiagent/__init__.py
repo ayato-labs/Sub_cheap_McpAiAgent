@@ -60,7 +60,9 @@ class SubLLMClient:
             token_count_resp = client.models.count_tokens(model=model_name, contents=prompt)
             current_tokens = token_count_resp.total_tokens
 
-            logger.info(f"Gemini [{role_name}] ({model_name}) Tokens: {current_tokens}/{max_tokens}")
+            logger.info(
+                f"Gemini [{role_name}] ({model_name}) Tokens: {current_tokens}/{max_tokens}"
+            )
 
             if current_tokens > max_tokens:
                 raise ValueError(
@@ -96,9 +98,13 @@ class SubLLMClient:
             if show_resp.status_code == 200:
                 context_limit = 4096  # Conservative default
                 estimated_tokens = len(prompt) // 4
-                logger.info(f"Ollama [{role_name}] ({model_name}) Est. Tokens: ~{estimated_tokens}/{context_limit}")
+                logger.info(
+                    f"Ollama [{role_name}] ({model_name}) Est. Tokens: ~{estimated_tokens}/{context_limit}"
+                )
                 if estimated_tokens > context_limit:
-                    logger.warning(f"Prompt might exceed Ollama limit: ~{estimated_tokens} > {context_limit}")
+                    logger.warning(
+                        f"Prompt might exceed Ollama limit: ~{estimated_tokens} > {context_limit}"
+                    )
         except Exception as e:
             logger.warning(f"Could not verify Ollama context limit for {model_name}: {e}")
 
@@ -140,7 +146,7 @@ def translate_to_english(text: str) -> str:
             "Maintain technical terms and code structure. Output ONLY the translated text.\n\n"
             f"TEXT:\n{chunk}"
         )
-        logger.info(f"Translating chunk {i+1}/{len(chunks)}...")
+        logger.info(f"Translating chunk {i + 1}/{len(chunks)}...")
         translated_chunks.append(SubLLMClient.call_any(model_id, prompt, role_name="translation"))
 
     return "\n".join(translated_chunks)
@@ -167,6 +173,7 @@ def clean_code_output(text: str) -> str:
     if "```" in text:
         # Extract content between first and last triple backticks
         import re
+
         match = re.search(r"```(?:\w+)?\n?(.*?)\n?```", text, re.DOTALL)
         if match:
             text = match.group(1)
@@ -177,7 +184,9 @@ def clean_code_output(text: str) -> str:
     # Remove common AI phrases if they leaked
     noise_phrases = ["Here is the updated code", "I have modified", "The following code"]
     for phrase in noise_phrases:
-        if phrase in text and len(text.splitlines()) < 5:  # Only if it's very short/likely a preamble
+        if (
+            phrase in text and len(text.splitlines()) < 5
+        ):  # Only if it's very short/likely a preamble
             text = text.replace(phrase, "")
 
     return text.strip()
@@ -323,21 +332,17 @@ def print_registration_example():
     project_dir = Path(__file__).parent.parent.parent.absolute()
     # Normalize path for Windows JSON (forward slashes are usually safer or double backslashes)
     path_str = str(project_dir).replace("\\", "/")
-    
+
     example = {
         "mcpServers": {
             "sub-cheap-mcp": {
                 "command": "uv",
-                "args": [
-                    "--directory",
-                    path_str,
-                    "run",
-                    "sub-cheap-mcp"
-                ]
+                "args": ["--directory", path_str, "run", "sub-cheap-mcp"],
             }
         }
     }
     import json
+
     logger.info("=== MCP Registration Example for Claude Desktop ===")
     print("\nCopy the following JSON into your 'claude_desktop_config.json':\n")
     print(json.dumps(example, indent=2))
