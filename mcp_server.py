@@ -2,6 +2,7 @@ import os
 import time
 import uuid
 import requests
+import subprocess
 from typing import Optional
 from pathlib import Path
 from dotenv import load_dotenv
@@ -31,20 +32,31 @@ class SubLLMClient:
         return genai.Client(api_key=api_key)
 
     @staticmethod
-    def detect_backend(model_id: str) -> str:
-        """Heuristic to detect if model is gemini or ollama."""
-        # Gemini models usually start with 'gemini-' or 'models/gemini-'
-        # Ollama models often have a colon (tag) like 'gemma2:9b'
-        if "gemini" in model_id.lower():
+    def detect_backend(model_id: str, specific_provider: Optional[str] = None) -> str:
+        """Determines the backend based on explicit configuration or fallback heuristic."""
+        if specific_provider:
+            return specific_provider.lower()
+            
+        global_provider = os.getenv("AI_PROVIDER", "").lower()
+        if global_provider in ["gemini", "ollama", "genspark"]:
+            return global_provider
+            
+        # Fallback heuristic if not explicitly set
+        low_id = model_id.lower()
+        if "gemini" in low_id:
             return "gemini"
+        if "genspark" in low_id or low_id in ["search", "crawl"]:
+            return "genspark"
         return "ollama"
 
     @staticmethod
-    def call_any(model_id: str, prompt: str, role_name: str = "task") -> str:
-        """Call the appropriate backend based on model_id."""
-        backend = SubLLMClient.detect_backend(model_id)
+    def call_any(model_id: str, prompt: str, role_name: str = "task", provider: Optional[str] = None) -> str:
+        """Call the appropriate backend based on configuration or model_id."""
+        backend = SubLLMClient.detect_backend(model_id, provider)
         if backend == "gemini":
             return SubLLMClient.call_gemini(model_id, prompt, role_name)
+        elif backend == "genspark":
+            return SubLLMClient.call_genspark(model_id, prompt, role_name)
         else:
             return SubLLMClient.call_ollama(model_id, prompt, role_name)
 
@@ -123,12 +135,31 @@ class SubLLMClient:
             logger.exception(f"Ollama [{role_name}] call failed")
             raise
 
+    @staticmethod
+    def call_genspark(model_name: str, prompt: str, role_name: str = "task") -> str:
+        """Call Genspark CLI (gsk) to get an answer."""
+        gsk_cmd = model_name if model_name in ["search", "crawl", "img", "video"] else os.getenv("GENSPARK_MODEL_TYPE", "search")
+        logger.info(f"Calling Genspark ({gsk_cmd}) for {role_name}...")
+        
+        command = ["gsk", gsk_cmd, prompt, "--output", "text"]
+        
+        try:
+            start_time = time.perf_counter()
+            result = subprocess.run(command, capture_output=True, text=True, check=True)
+            elapsed = time.perf_counter() - start_time
+            logger.info(f"Genspark [{role_name}] completed in {elapsed:.2f}s")
+            return result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            logger.exception(f"Genspark [{role_name}] call failed: {e.stderr}")
+            raise
+
 
 def translate_to_english(text: str) -> str:
     """Chunks text and translates it to English."""
     if not text or text.isascii():
         return text
 
+    provider = os.getenv("TRANSLATION_PROVIDER")
     model_id = os.getenv("TRANSLATION_MODEL", "gemini-2.5-flash")
     chunk_size = 3000
     chunks = [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
@@ -141,13 +172,14 @@ def translate_to_english(text: str) -> str:
             f"TEXT:\n{chunk}"
         )
         logger.info(f"Translating chunk {i+1}/{len(chunks)}...")
-        translated_chunks.append(SubLLMClient.call_any(model_id, prompt, role_name="translation"))
+        translated_chunks.append(SubLLMClient.call_any(model_id, prompt, role_name="translation", provider=provider))
 
     return "\n".join(translated_chunks)
 
 
 def compress_context(instruction: str, context: str) -> str:
     """Compresses the reference context to fit into the model's window."""
+    provider = os.getenv("DRAFTING_PROVIDER")
     model_id = os.getenv("DRAFTING_MODEL", "gemini-2.5-flash")
     prompt = (
         "You are a context compression expert. Your goal is to shrink the following reference code\n"
@@ -158,7 +190,7 @@ def compress_context(instruction: str, context: str) -> str:
         f"### Reference Code:\n{context}"
     )
     logger.info("Compressing long context...")
-    return SubLLMClient.call_any(model_id, prompt, role_name="compression")
+    return SubLLMClient.call_any(model_id, prompt, role_name="compression", provider=provider)
 
 
 def clean_code_output(text: str) -> str:
@@ -238,7 +270,9 @@ def draft_code(
 
             # --- 3. COMPRESSION PHASE (Conditional) ---
             # Use provided model or fall back to .env
+            provider = os.getenv("DRAFTING_PROVIDER")
             drafting_model_id = model or os.getenv("DRAFTING_MODEL", "gemini-2.5-flash")
+            backend = SubLLMClient.detect_backend(drafting_model_id, provider)
 
             # Temporary build of prompt to check size
             system_prompt = (
@@ -260,7 +294,7 @@ def draft_code(
             final_prompt = build_draft_prompt(instruction, target_snippet, reference_context)
 
             # Check if we need compression (proper check for Gemini)
-            if SubLLMClient.detect_backend(drafting_model_id) == "gemini":
+            if backend == "gemini":
                 try:
                     client = SubLLMClient.get_gemini_client()
                     limit = client.models.get(model=drafting_model_id).input_token_limit
@@ -279,7 +313,7 @@ def draft_code(
             # --- 4. GENERATION PHASE ---
             try:
                 generated_code = SubLLMClient.call_any(
-                    drafting_model_id, final_prompt, role_name="drafting"
+                    drafting_model_id, final_prompt, role_name="drafting", provider=provider
                 )
                 generated_code = clean_code_output(generated_code)
             except Exception as e:
