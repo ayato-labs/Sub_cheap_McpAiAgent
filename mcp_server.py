@@ -276,11 +276,13 @@ def draft_code(
 
             # Temporary build of prompt to check size
             system_prompt = (
-                "You are a professional code factory. Your task is to modify or write code based on instructions.\n"
+                "You are a coding assistant providing a draft (叩き台) based on specific instructions.\n"
+                "Your goal is to perform the heavy lifting of writing code so the Architect can refine it.\n"
                 "RULES:\n"
                 "- Output ONLY the code. No explanations, no markdown blocks.\n"
                 "- Maintain existing indentation and style.\n"
                 "- Provide the FULL replacement for the given snippet.\n"
+                "- If unsure, provide the most likely draft; the Architect will handle final validation.\n"
             )
 
             def build_draft_prompt(instr, snippet, context):
