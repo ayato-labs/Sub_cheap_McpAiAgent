@@ -407,7 +407,6 @@ def draft_code(
 
 if __name__ == "__main__":
     import sys
-    import socket
     import json
 
     # Default to 'streamable-http' for modern parallel support, as per user requirement.
@@ -417,27 +416,28 @@ if __name__ == "__main__":
         transport = sys.argv[1]
 
     port = 10300
-    hostname = socket.gethostname()
+    # Force IPv4 localhost to prevent IPv6/mDNS connection refused errors on Windows
+    bind_host = "127.0.0.1"
 
     try:
         if transport in ["http", "streamable-http"]:
-            logger.info(f"Starting MCP Server on {hostname}:{port} with transport: streamable-http")
+            logger.info(f"Starting MCP Server on {bind_host}:{port} with transport: streamable-http")
             print("\n" + "=" * 60)
             print("MCP SERVER RUNNING (STREAMABLE HTTP)")
-            print(f"URL: http://{hostname}:{port}/mcp")
+            print(f"URL: http://{bind_host}:{port}/mcp")
             print("-" * 60)
             print("Claude Desktop Configuration Example:")
             config_example = {
                 "mcpServers": {
                     "sub-cheap-mcp": {
-                        "url": f"http://{hostname}:{port}/mcp"
+                        "url": f"http://{bind_host}:{port}/mcp"
                     }
                 }
             }
             print(json.dumps(config_example, indent=2))
             print("=" * 60 + "\n")
             # FastMCP uses 'streamable-http' as the transport name internally for this mode
-            mcp.run(transport="streamable-http", port=port, host="::", stateless_http=True)
+            mcp.run(transport="streamable-http", port=port, host=bind_host, stateless_http=True)
         else:
             logger.info("Starting MCP Server with transport: stdio")
             mcp.run(transport="stdio")
