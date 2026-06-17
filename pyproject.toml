@@ -14,14 +14,15 @@ readme = "README.md"
 requires-python = ">=3.10"
 
 [project.scripts]
-sub-cheap-mcp = "sub_cheap_mcpaiagent:mcp.run"
+sub-cheap-mcp = "sub_cheap_mcpaiagent.server:main"
 
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["sub_cheap_mcpaiagent*"]
 
 [tool.ruff]
 line-length = 100

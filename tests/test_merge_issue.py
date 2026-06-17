@@ -1,7 +1,7 @@
 import os
 import pytest
 from pathlib import Path
-from mcp_server import draft_code, SubLLMClient
+from sub_cheap_mcpaiagent.server import draft_code, SubLLMClient
 
 # Mock the SubLLMClient to simulate a typical LLM response when asked to "add a divide function"
 # We want to see how the pipeline handles both API responses and prompt building.
