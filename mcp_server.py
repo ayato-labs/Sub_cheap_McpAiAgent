@@ -13,8 +13,8 @@ from google import genai
 # Load environment variables
 load_dotenv(override=True)
 
-# Initialize FastMCP
-mcp = FastMCP("Sub-cheap-McpAiAgent")
+# Initialize FastMCP with stateless_http=True to prevent "session not found" errors on restart
+mcp = FastMCP("Sub-cheap-McpAiAgent", stateless_http=True)
 
 # Configure logger
 logger.remove()
@@ -437,7 +437,7 @@ if __name__ == "__main__":
             print(json.dumps(config_example, indent=2))
             print("=" * 60 + "\n")
             # FastMCP uses 'streamable-http' as the transport name internally for this mode
-            mcp.run(transport="streamable-http", port=port, host="0.0.0.0")
+            mcp.run(transport="streamable-http", port=port, host="::")
         else:
             logger.info("Starting MCP Server with transport: stdio")
             mcp.run(transport="stdio")
