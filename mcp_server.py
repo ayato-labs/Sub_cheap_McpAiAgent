@@ -409,8 +409,8 @@ if __name__ == "__main__":
     import sys
     import json
 
-    # Default to 'streamable-http' for modern parallel support, as per user requirement.
-    # Can be overridden by command line argument: python mcp_server.py stdio
+    # We exclusively use Streamable HTTP for parallel support.
+    # Hidden fallback: python mcp_server.py stdio (not recommended)
     transport = "http"
     if len(sys.argv) > 1:
         transport = sys.argv[1]
@@ -420,7 +420,10 @@ if __name__ == "__main__":
     bind_host = "127.0.0.1"
 
     try:
-        if transport in ["http", "streamable-http"]:
+        if transport == "stdio":
+            logger.info("Starting MCP Server with transport: stdio")
+            mcp.run(transport="stdio")
+        else:
             logger.info(f"Starting MCP Server on {bind_host}:{port} with transport: streamable-http")
             print("\n" + "=" * 60)
             print("MCP SERVER RUNNING (STREAMABLE HTTP)")
@@ -436,11 +439,7 @@ if __name__ == "__main__":
             }
             print(json.dumps(config_example, indent=2))
             print("=" * 60 + "\n")
-            # FastMCP uses 'streamable-http' as the transport name internally for this mode
             mcp.run(transport="streamable-http", port=port, host=bind_host, stateless_http=True)
-        else:
-            logger.info("Starting MCP Server with transport: stdio")
-            mcp.run(transport="stdio")
     except Exception:
         logger.exception("MCP Server crashed")
         if transport == "stdio":
