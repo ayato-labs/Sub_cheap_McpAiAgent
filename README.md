@@ -40,7 +40,7 @@ The core philosophy is **"The Architect and the Part-timer"**:
     ```
 
 3.  **Run the Server**:
-    Execute `run.bat`. The server will start on `http://[YOUR-HOSTNAME]:10300/mcp`. **Keep this window open.**
+    Execute `run.bat`. The server will start on `http://127.0.0.1:10300/mcp`. **Keep this window open.**
 
 4.  **Register with Claude Desktop**:
     Add the URL to your `claude_desktop_config.json`:
@@ -48,7 +48,7 @@ The core philosophy is **"The Architect and the Part-timer"**:
     {
       "mcpServers": {
         "sub-cheap-mcp": {
-          "url": "http://[YOUR-HOSTNAME]:10300/mcp"
+          "url": "http://127.0.0.1:10300/mcp"
         }
       }
     }
