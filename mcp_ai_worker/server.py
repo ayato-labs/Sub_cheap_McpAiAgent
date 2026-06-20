@@ -32,7 +32,6 @@ load_dotenv(override=True)
 mcp = FastMCP("MCP-AIWorker")
 
 
-
 @mcp.tool()
 def find_and_draft_edit(requirement: str, target_dir: str) -> str:
     """
@@ -83,7 +82,7 @@ def find_and_draft_edit(requirement: str, target_dir: str) -> str:
                 "You are a coding assistant providing a draft (叩き台) based on specific "
                 "instructions."
             )
-        
+
         final_prompt = f"{system_prompt}\n\nInstruction: {requirement}\n\nCurrent Block:\n{snippet}"
 
         logger.info("Generating code draft...")
@@ -94,14 +93,9 @@ def find_and_draft_edit(requirement: str, target_dir: str) -> str:
 
         # Write back changes
         msg = _write_back_changes(
-            Path(filepath),
-            cleaned_code,
-            start_line,
-            end_line,
-            full_content,
-            model_id
+            Path(filepath), cleaned_code, start_line, end_line, full_content, model_id
         )
-        
+
         total_elapsed = time.perf_counter() - start_total_time
         logger.info(f"{msg} (Total pipeline time: {total_elapsed:.2f}s)")
         return msg
@@ -113,7 +107,8 @@ def execute_command(
 ) -> str:
     """
     [Architect vs. Part-timer]
-    Executes terminal commands, summarizes the resulting lengthy raw logs (standard output/error output) using an inexpensive sub-LLM,
+    Executes terminal commands and summarizes the resulting lengthy raw logs
+    (standard output/error output) using an inexpensive sub-LLM,
     and returns only the important points (error causes and execution results) to YOU (main AI).
 
     ### CRITICAL WARNING FOR YOU (THE ARCHITECT)
@@ -131,7 +126,7 @@ def execute_command(
             cwd=working_dir,
             capture_output=True,
             text=True,
-            timeout=timeout_seconds
+            timeout=timeout_seconds,
         )
         # Merge logs
         raw_log = f"--- STDOUT ---\n{result.stdout}\n\n--- STDERR ---\n{result.stderr}"
@@ -154,7 +149,9 @@ def execute_command(
         model_id = os.getenv("DRAFTING_MODEL", "models/gemma-4-31b-it")
 
         logger.info("Delegating log summarization to Sub-LLM...")
-        summary = SubLLMClient.call_any(model_id, prompt, role_name="summarization", provider=provider)
+        summary = SubLLMClient.call_any(
+            model_id, prompt, role_name="summarization", provider=provider
+        )
 
         return (
             f"Command executed (Exit code: {result.returncode}).\n\n"
@@ -174,7 +171,9 @@ def execute_command(
         )
         provider = os.getenv("DRAFTING_PROVIDER")
         model_id = os.getenv("DRAFTING_MODEL", "models/gemma-4-31b-it")
-        summary = SubLLMClient.call_any(model_id, prompt, role_name="summarization", provider=provider)
+        summary = SubLLMClient.call_any(
+            model_id, prompt, role_name="summarization", provider=provider
+        )
 
         return f"Warning: Command timed out.\n\n[Sub-LLM Partial Log Summary]\n{summary}"
 
@@ -228,9 +227,7 @@ def draft_code(
             # --- 2. DATA LOADING ---
             file_path = Path(path)
             try:
-                target_snippet, full_content = _load_target_snippet(
-                    file_path, start_line, end_line
-                )
+                target_snippet, full_content = _load_target_snippet(file_path, start_line, end_line)
             except Exception:
                 return "Error reading file."
 
@@ -315,13 +312,14 @@ def draft_code(
             logger.exception("Unexpected fatal error in pipeline")
             return f"Fatal error: {e}"
 
+
 @mcp.tool()
 def fetch_and_summarize_url(url: str, instruction: Optional[str] = None) -> str:
     """
     [Architect vs. Part-timer]
     Extracts text content from a specified HTTPS URL and generates an accurate summary using a sub-LLM.
     This saves massive token overhead for YOU (the main AI) by avoiding reading large, raw web pages.
-    
+
     CRITICAL WARNING: Pages utilizing client-side dynamic rendering (SPAs) will fail to parse.
     If a failure occurs, fall back to manual copy-pasting from your host browser.
     """
@@ -348,27 +346,29 @@ def fetch_and_summarize_url(url: str, instruction: Optional[str] = None) -> str:
             "Do NOT invent facts, do NOT assume or extrapolate.\n"
             "Structure the output in clean Markdown format using bullet points.\n\n"
         )
-        
+
         if instruction:
             # Leverage the existing translation pipeline
             instruction_en = translate_to_english(instruction)
             summary_prompt += f"### Specific Focus Request from Architect:\n{instruction_en}\n\n"
-        
+
         summary_prompt += f"### WEB CONTENT (.md):\n{markdown_content}"
 
         provider = os.getenv("DRAFTING_PROVIDER")
         model_id = os.getenv("DRAFTING_MODEL", "models/gemma-4-31b-it")
 
-        logger.info("Delegating summary to Sub-LLM with deterministic constraints (temperature=0.0)...")
-        
+        logger.info(
+            "Delegating summary to Sub-LLM with deterministic constraints (temperature=0.0)..."
+        )
+
         # 3. Invoke Sub-LLM with a deterministic zero-temperature setting
         try:
             summary = SubLLMClient.call_any(
-                model_id, 
-                summary_prompt, 
-                role_name="summarization", 
+                model_id,
+                summary_prompt,
+                role_name="summarization",
                 provider=provider,
-                temperature=0.0  # Rigidly enforce factual constraint
+                temperature=0.0,  # Rigidly enforce factual constraint
             )
         except Exception as e:
             logger.exception("Failed to summarize content")
@@ -376,8 +376,9 @@ def fetch_and_summarize_url(url: str, instruction: Optional[str] = None) -> str:
 
         elapsed = time.perf_counter() - start_time
         logger.info(f"URL successfully summarized. (Time: {elapsed:.2f}s)")
-        
+
         return f"URL Successfully Summarized.\n\n[Sub-LLM Web Summary]\n{summary}"
+
 
 def main():
     # We exclusively use Streamable HTTP for parallel support.
@@ -395,15 +396,25 @@ def main():
             logger.info("Starting MCP Server with transport: stdio")
             mcp.run(transport="stdio")
         else:
-            logger.info(f"Starting MCP Server on {bind_host}:{port} with transport: streamable-http")
+            logger.info(
+                f"Starting MCP Server on {bind_host}:{port} with transport: streamable-http"
+            )
+            config_example = json.dumps(
+                {"mcpServers": {"mcp-ai-worker": {"url": f"http://{bind_host}:{port}/mcp"}}},
+                indent=2,
+            )
             startup_msg = (
-                "\n" + "=" * 60 + 
-                "\nMCP SERVER RUNNING (STREAMABLE HTTP)" +
-                f"\nURL: http://{bind_host}:{port}/mcp" +
-                "\n" + "-" * 60 + 
-                "\nClaude Desktop Configuration Example:" +
-                f"\n{json.dumps({'mcpServers': {'mcp-ai-worker': {'url': f'http://{bind_host}:{port}/mcp'}}}, indent=2)}" +
-                "\n" + "=" * 60 + "\n"
+                "\n"
+                + "=" * 60
+                + "\nMCP SERVER RUNNING (STREAMABLE HTTP)"
+                + f"\nURL: http://{bind_host}:{port}/mcp"
+                + "\n"
+                + "-" * 60
+                + "\nClaude Desktop Configuration Example:"
+                + f"\n{config_example}"
+                + "\n"
+                + "=" * 60
+                + "\n"
             )
             print(startup_msg)
             logger.info(startup_msg)
@@ -414,6 +425,7 @@ def main():
             pass
         else:
             input("Press Enter to exit...")
+
 
 if __name__ == "__main__":
     main()

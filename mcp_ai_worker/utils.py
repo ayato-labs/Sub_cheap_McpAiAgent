@@ -1,3 +1,4 @@
+import ast
 import os
 import re
 import subprocess
@@ -11,6 +12,7 @@ from typing import Optional
 from mcp_ai_worker.logger import logger
 from mcp_ai_worker.client import SubLLMClient
 
+
 def load_prompt_template(filename: str) -> str:
     """Loads a prompt template from the prompts directory."""
     try:
@@ -19,6 +21,7 @@ def load_prompt_template(filename: str) -> str:
     except Exception as e:
         logger.error(f"Failed to load prompt template {filename}: {e}")
         return ""
+
 
 def clean_json_output(text: str) -> str:
     """Extracts JSON block from LLM response."""
@@ -33,9 +36,8 @@ def clean_json_output(text: str) -> str:
         return text[start_idx : end_idx + 1]
     return text.strip()
 
-import ast
-import os
-import subprocess
+
+
 
 def generate_repo_map(directory: str) -> str:
     """Generates a signature map of the entire directory using grep-ast"""
@@ -45,7 +47,7 @@ def generate_repo_map(directory: str) -> str:
             cwd=directory,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         return result.stdout
     except Exception as e:
@@ -60,11 +62,15 @@ def generate_repo_map(directory: str) -> str:
                         with open(full_path, "r", encoding="utf-8") as f:
                             tree = ast.parse(f.read())
                         for node in ast.walk(tree):
-                            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                            if isinstance(
+                                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                            ):
                                 repo_map.append(f"{rel_path}:{node.lineno}: {node.name}")
                     except Exception:
                         continue
         return "\n".join(repo_map)
+
+
 def extract_target_block(filepath: str, target_name: str) -> tuple[str, int, int, list[str]]:
     """
     Extracts blocks matching the function/class name from the specified file.
@@ -84,34 +90,31 @@ def extract_target_block(filepath: str, target_name: str) -> tuple[str, int, int
             return "", 0, 0, full_content
 
         start_line = content_str.count("\n", 0, match.start()) + 1
-        
+
         # Heuristic: find end of block by looking for next definition at same indentation or EOF
         # This is simplified. In a real scenario, we'd use tree-sitter.
-        start_pos = match.start()
         # Find the indentation of the matched line
-        current_line_start = content_str.rfind("\n", 0, start_pos) + 1
-        
+
         # We just take a reasonable chunk or use a simple regex to find next top-level def/class
         # For now, let's find the next line that starts with 'def ' or 'class ' at 0 indentation
         # or the end of the file.
-        remaining_text = content_str[match.end():]
+        remaining_text = content_str[match.end() :]
         next_block = re.search(r"^\s*(?:def|class)\s+", remaining_text, re.MULTILINE)
-        
-        if next_block:
-            end_pos = next_block.start()
-        else:
-            end_pos = len(content_str)
 
         # More accurate line count for end_line
-        snippet = content_str[match.start() : (match.end() + next_block.start()) if next_block else len(content_str)]
-        
+        snippet = content_str[
+            match.start() : (match.end() + next_block.start()) if next_block else len(content_str)
+        ]
+
         # Re-calculate end_line based on snippet
         end_line = start_line + snippet.count("\n")
-        
+
         return snippet, start_line, end_line, full_content
     except Exception as e:
         logger.exception(f"Failed to extract target block: {e}")
         return "", 0, 0, []
+
+
 def translate_to_english(text: str) -> str:
     """Chunks text and translates it to English."""
     if not text or text.isascii():
@@ -136,6 +139,7 @@ def translate_to_english(text: str) -> str:
 
     return "\n".join(translated_chunks)
 
+
 def compress_context(instruction: str, context: str) -> str:
     """Compresses the reference context to fit into the model's window."""
     provider = os.getenv("DRAFTING_PROVIDER")
@@ -150,6 +154,7 @@ def compress_context(instruction: str, context: str) -> str:
     )
     logger.info("Compressing long context...")
     return SubLLMClient.call_any(model_id, prompt, role_name="compression", provider=provider)
+
 
 def is_safe_url(url: str) -> bool:
     """Validates the URL protocol and protects against SSRF."""
@@ -167,6 +172,7 @@ def is_safe_url(url: str) -> bool:
     except Exception:
         return False
 
+
 def fetch_and_clean_markdown(url: str, timeout: float = 10.0) -> str:
     """Fetches HTML, decomposes noisy elements, and converts the core to Markdown."""
     if not is_safe_url(url):
@@ -181,12 +187,12 @@ def fetch_and_clean_markdown(url: str, timeout: float = 10.0) -> str:
     soup = BeautifulSoup(html_content, "html.parser")
 
     # 2. Narrow down the target container
-    target = soup.find('article') or soup.find('main') or soup.find('body')
+    target = soup.find("article") or soup.find("main") or soup.find("body")
     if not target:
         raise ValueError("Extraction Error: Could not find a suitable content container.")
 
     # 3. Decompose noisy elements
-    exclude_tags = ['script', 'style', 'nav', 'footer', 'header', 'noscript', 'aside', 'form']
+    exclude_tags = ["script", "style", "nav", "footer", "header", "noscript", "aside", "form"]
     for tag in target.find_all(exclude_tags):
         tag.decompose()
 
@@ -194,8 +200,8 @@ def fetch_and_clean_markdown(url: str, timeout: float = 10.0) -> str:
     raw_md = md(str(target), heading_style="ATX")
 
     # 5. Compress consecutive whitespaces and newlines to save tokens
-    cleaned_md = re.sub(r'\n\s+\n', '\n\n', raw_md)
-    cleaned_md = re.sub(r'\n{3,}', '\n\n', cleaned_md)
+    cleaned_md = re.sub(r"\n\s+\n", "\n\n", raw_md)
+    cleaned_md = re.sub(r"\n{3,}", "\n\n", cleaned_md)
     cleaned_md = cleaned_md.strip()
 
     # SPA Detection: Fail fast if the extracted context is too shallow
@@ -204,6 +210,7 @@ def fetch_and_clean_markdown(url: str, timeout: float = 10.0) -> str:
         raise ValueError("Extraction Error: Content is too short or the page is a dynamic SPA.")
 
     return cleaned_md
+
 
 def clean_code_output(text: str) -> str:
     """
@@ -216,7 +223,9 @@ def clean_code_output(text: str) -> str:
     cleaned = text.strip()
 
     # 1. Extraction by XML tag (<draft_output>)
-    xml_pattern = re.compile(r"<draft_output>\s*\n?(.*?)\n?\s*</draft_output>", re.DOTALL | re.IGNORECASE)
+    xml_pattern = re.compile(
+        r"<draft_output>\s*\n?(.*?)\n?\s*</draft_output>", re.DOTALL | re.IGNORECASE
+    )
     match = xml_pattern.search(cleaned)
     if match:
         cleaned = match.group(1).strip()
@@ -245,6 +254,7 @@ def clean_code_output(text: str) -> str:
 
     return cleaned.strip()
 
+
 def _load_target_snippet(
     file_path: Path, start_line: Optional[int], end_line: Optional[int]
 ) -> tuple[str, list[str]]:
@@ -264,6 +274,7 @@ def _load_target_snippet(
     except Exception:
         logger.exception(f"Failed to read existing file: {file_path}")
         raise
+
 
 def _write_back_changes(
     file_path: Path,

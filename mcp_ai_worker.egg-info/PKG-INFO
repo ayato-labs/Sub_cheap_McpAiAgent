@@ -11,6 +11,9 @@ Requires-Dist: python-dotenv
 Requires-Dist: requests
 Requires-Dist: loguru
 Requires-Dist: google-genai>=2.8.0
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: beautifulsoup4>=4.12.0
+Requires-Dist: markdownify>=0.11.0
 Dynamic: license-file
 
 # MCP-AIWorker
@@ -32,7 +35,7 @@ By delegating token-heavy, mechanical tasks—such as drafting repetitive code, 
 As AI agents perform file-wide analysis and compile-run-debug loops, they read and write large files and logs, quickly exhausting your context window and API budget. 
 
 By splitting the workload into the **Architect-Worker Paradigm**, you get:
-*   **Up to 90% Cost Reduction**: Offloads structural coding and translation tasks to free/low-cost tiers.
+*   **Up to 90% Cost Reduction**: Offloads structural coding and translation tasks to free/low-cost tiers (such as Gemini Flash or local Ollama). *Note: The 90% reduction is a theoretical maximum achieved when leveraging prompt caching or local LLMs; single-turn workflows with duplicate full-file reads typically see around 30%-40% reduction.*
 *   **Faster Iteration**: Reduces network payloads and speeds up the core planning loop.
 *   **No Infinite Loops**: Explicitly rejects complex, token-wasting internal QA loops inside the sub-LLM. The Architect AI inspects the draft and corrects integrations directly, keeping it fast and predictable.
 
@@ -124,6 +127,12 @@ Runs directory-wide targeting. It scans the repository using `grep-ast` to pinpo
 
 ### `execute_command`
 Executes terminal commands (e.g. testing, linting) and delegates the lengthy stdout/stderr output to a sub-LLM for a concise summary. Saves valuable context window tokens.
+
+### `fetch_and_summarize_url`
+Extracts text content from a specified HTTPS URL and generates an accurate summary using a sub-LLM, saving token overhead. (Requires static HTML, Single Page Applications are not supported).
+*   **url** (string): Absolute HTTPS URL to fetch.
+*   **instruction** (optional string): Specific focus request for the summary.
+
 
 ---
 

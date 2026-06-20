@@ -6,37 +6,34 @@ from typing import Optional
 from mcp_ai_worker.logger import logger
 from google import genai
 
+
 class SubLLMClient:
     @staticmethod
     def format_request(prompt, system_prompt=None, temperature=0.7, max_tokens=1024):
         """
-        Formats the input prompt and system instructions into a structured request payload 
+        Formats the input prompt and system instructions into a structured request payload
         compatible with the LLM API.
 
         Args:
             prompt (str): The primary user input or query to be processed by the model.
-            system_prompt (str, optional): Instructions to define the model's persona or 
+            system_prompt (str, optional): Instructions to define the model's persona or
                 behavioral constraints. Defaults to None.
-            temperature (float): Controls the randomness of the output. Higher values 
-                (e.g., 0.8) make the output more random, while lower values (e.g., 0.2) 
+            temperature (float): Controls the randomness of the output. Higher values
+                (e.g., 0.8) make the output more random, while lower values (e.g., 0.2)
                 make it more deterministic. Defaults to 0.7.
-            max_tokens (int): The maximum number of tokens to generate in the completion. 
+            max_tokens (int): The maximum number of tokens to generate in the completion.
                 Defaults to 1024.
 
         Returns:
-            dict: A dictionary containing the 'messages' list and sampling parameters 
+            dict: A dictionary containing the 'messages' list and sampling parameters
                 required for the API call.
         """
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-        
-        return {
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens
-        }
+
+        return {"messages": messages, "temperature": temperature, "max_tokens": max_tokens}
 
     @staticmethod
     def parse_response(response_data):
@@ -44,26 +41,26 @@ class SubLLMClient:
         Extracts and cleans the generated text content from the raw API response object.
 
         Args:
-            response_data (dict): The raw JSON response dictionary returned by the 
+            response_data (dict): The raw JSON response dictionary returned by the
                 LLM provider's API.
 
         Returns:
             str: The stripped text content of the first generated completion choice.
 
         Raises:
-            KeyError: If the response dictionary does not follow the expected 
+            KeyError: If the response dictionary does not follow the expected
                 provider schema (e.g., missing 'choices' or 'message').
             IndexError: If the 'choices' list is empty.
         """
-        return response_data['choices'][0]['message']['content'].strip()
+        return response_data["choices"][0]["message"]["content"].strip()
 
     @staticmethod
     def validate_config(config):
         """
-        Validates that the provided configuration dictionary contains all necessary 
+        Validates that the provided configuration dictionary contains all necessary
         credentials and endpoint settings.
         """
-        required_keys = ['api_key', 'base_url', 'model_name']
+        required_keys = ["api_key", "base_url", "model_name"]
         return all(config.get(key) for key in required_keys)
 
     @staticmethod
@@ -94,7 +91,11 @@ class SubLLMClient:
 
     @staticmethod
     def call_any(
-        model_id: str, prompt: str, role_name: str = "task", provider: Optional[str] = None, temperature: Optional[float] = None
+        model_id: str,
+        prompt: str,
+        role_name: str = "task",
+        provider: Optional[str] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         """Call the appropriate backend based on configuration or model_id."""
         backend = SubLLMClient.detect_backend(model_id, provider)
@@ -106,7 +107,9 @@ class SubLLMClient:
             return SubLLMClient.call_ollama(model_id, prompt, role_name, temperature)
 
     @staticmethod
-    def call_gemini(model_name: str, prompt: str, role_name: str = "task", temperature: Optional[float] = None) -> str:
+    def call_gemini(
+        model_name: str, prompt: str, role_name: str = "task", temperature: Optional[float] = None
+    ) -> str:
         client = SubLLMClient.get_gemini_client()
 
         # Dynamic context check
@@ -135,7 +138,13 @@ class SubLLMClient:
                 model=model_name,
                 contents=prompt,
                 config=genai.types.GenerateContentConfig(
-                    temperature=temperature if temperature is not None else (0.0 if role_name == "summarization" else (0.1 if role_name != "drafting" else 0.2)),
+                    temperature=temperature
+                    if temperature is not None
+                    else (
+                        0.0
+                        if role_name == "summarization"
+                        else (0.1 if role_name != "drafting" else 0.2)
+                    ),
                 ),
             )
             elapsed = time.perf_counter() - start_time
@@ -146,7 +155,9 @@ class SubLLMClient:
             raise
 
     @staticmethod
-    def call_ollama(model_name: str, prompt: str, role_name: str = "task", temperature: Optional[float] = None) -> str:
+    def call_ollama(
+        model_name: str, prompt: str, role_name: str = "task", temperature: Optional[float] = None
+    ) -> str:
         base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
         # Dynamic context check for Ollama
@@ -161,8 +172,7 @@ class SubLLMClient:
                 )
                 if estimated_tokens > context_limit:
                     logger.warning(
-                        f"Prompt might exceed Ollama limit: "
-                        f"~{estimated_tokens} > {context_limit}"
+                        f"Prompt might exceed Ollama limit: ~{estimated_tokens} > {context_limit}"
                     )
         except Exception as e:
             logger.warning(f"Could not verify Ollama context limit for {model_name}: {e}")
@@ -176,8 +186,15 @@ class SubLLMClient:
                     "model": model_name,
                     "prompt": prompt,
                     "stream": False,
-                     "options": {"temperature": temperature if temperature is not None else (0.0 if role_name == "summarization" else (0.1 if role_name != "drafting" else 0.2))},
-
+                    "options": {
+                        "temperature": temperature
+                        if temperature is not None
+                        else (
+                            0.0
+                            if role_name == "summarization"
+                            else (0.1 if role_name != "drafting" else 0.2)
+                        )
+                    },
                 },
                 timeout=90,
             )

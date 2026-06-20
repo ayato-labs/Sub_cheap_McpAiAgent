@@ -3,6 +3,7 @@ README.md
 pyproject.toml
 mcp_ai_worker/__init__.py
 mcp_ai_worker/client.py
+mcp_ai_worker/logger.py
 mcp_ai_worker/server.py
 mcp_ai_worker/utils.py
 mcp_ai_worker.egg-info/PKG-INFO
@@ -11,6 +12,3 @@ mcp_ai_worker.egg-info/dependency_links.txt
 mcp_ai_worker.egg-info/entry_points.txt
 mcp_ai_worker.egg-info/requires.txt
 mcp_ai_worker.egg-info/top_level.txt
-tests/test_mcp_server.py
-tests/test_merge.py
-tests/test_merge_issue.py

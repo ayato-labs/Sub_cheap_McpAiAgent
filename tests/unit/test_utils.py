@@ -1,17 +1,16 @@
-import pytest
-import os
 from pathlib import Path
 from mcp_ai_worker.utils import (
     clean_json_output,
     extract_target_block,
     clean_code_output,
     _load_target_snippet,
-    _write_back_changes
+    _write_back_changes,
 )
+
 
 def test_clean_json_output():
     # Case 1: Standard markdown JSON block
-    text = "Here is the result:\n```json\n{\"key\": \"value\"}\n```\nHope this helps!"
+    text = 'Here is the result:\n```json\n{"key": "value"}\n```\nHope this helps!'
     assert clean_json_output(text) == '{"key": "value"}'
 
     # Case 2: No markdown, just JSON
@@ -19,12 +18,13 @@ def test_clean_json_output():
     assert clean_json_output(text) == '{"key": "value"}'
 
     # Case 3: JSON with noise around it (fallback to { } search)
-    text = "The response is: {\"key\": \"value\"} but not formatted."
+    text = 'The response is: {"key": "value"} but not formatted.'
     assert clean_json_output(text) == '{"key": "value"}'
 
     # Case 4: Completely invalid content
     text = "Nothing here"
     assert clean_json_output(text) == "Nothing here"
+
 
 def test_clean_code_output():
     # Case 1: XML tags
@@ -46,6 +46,7 @@ def test_clean_code_output():
     # Case 5: Noise phrases (short result)
     text = "Here is the updated code\ndef hello():\n    pass"
     assert "Here is the updated code" not in clean_code_output(text)
+
 
 def test_extract_target_block(tmp_path):
     content = (
@@ -77,6 +78,7 @@ def test_extract_target_block(tmp_path):
     assert snippet == ""
     assert start == 0
 
+
 def test_load_target_snippet(tmp_path):
     content = ["line 1\n", "line 2\n", "line 3\n", "line 4\n", "line 5\n"]
     filepath = tmp_path / "test.txt"
@@ -99,6 +101,7 @@ def test_load_target_snippet(tmp_path):
     snippet, full = _load_target_snippet(Path("missing.txt"), None, None)
     assert snippet == ""
     assert full == []
+
 
 def test_write_back_changes(tmp_path):
     content = ["line 1\n", "line 2\n", "line 3\n", "line 4\n"]

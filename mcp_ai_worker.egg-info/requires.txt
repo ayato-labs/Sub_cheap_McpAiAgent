@@ -3,3 +3,6 @@ python-dotenv
 requests
 loguru
 google-genai>=2.8.0
+httpx>=0.27.0
+beautifulsoup4>=4.12.0
+markdownify>=0.11.0

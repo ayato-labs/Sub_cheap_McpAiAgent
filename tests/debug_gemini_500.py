@@ -1,4 +1,3 @@
-import os
 from google import genai
 from dotenv import load_dotenv
 
@@ -18,7 +17,7 @@ system_prompt = (
 )
 
 instruction = "Add a divide(a, b) function to this calculator. Return the complete updated file."
-snippet = '''def add(a, b):
+snippet = """def add(a, b):
     return a + b
 
 def subtract(a, b):
@@ -26,9 +25,11 @@ def subtract(a, b):
 
 def multiply(a, b):
     return a * b
-'''
+"""
 
-prompt = f"{system_prompt}\n### Instruction:\n{instruction}\n\n### Current Code Snippet:\n{snippet}\n\n"
+prompt = (
+    f"{system_prompt}\n### Instruction:\n{instruction}\n\n### Current Code Snippet:\n{snippet}\n\n"
+)
 
 print("--- PROMPT ---")
 print(prompt)
@@ -36,9 +37,9 @@ print("--------------")
 
 try:
     response = client.models.generate_content(
-        model='models/gemma-4-31b-it',
+        model="models/gemma-4-31b-it",
         contents=prompt,
-        config=genai.types.GenerateContentConfig(temperature=0.2)
+        config=genai.types.GenerateContentConfig(temperature=0.2),
     )
     print("SUCCESS")
     print(response.text)

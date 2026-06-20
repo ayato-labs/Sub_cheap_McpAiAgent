@@ -28,7 +28,8 @@ where = ["."]
 include = ["mcp_ai_worker*"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
+target-version = "py310"
 
 [tool.ruff.lint]
 # Select default rules (E, F) + some extras if needed
