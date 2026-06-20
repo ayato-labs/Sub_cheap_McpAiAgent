@@ -39,6 +39,7 @@ def test_draft_code_full_overwrite(tmp_path, mock_backend):
 
 def test_draft_code_translation_trigger(tmp_path, mock_backend):
     test_file = tmp_path / "test.py"
+    test_file.write_text("pass") # Create file
     # Instruction contains Japanese
     instruction = "日本語の指示"
 

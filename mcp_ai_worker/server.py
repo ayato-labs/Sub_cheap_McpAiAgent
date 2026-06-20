@@ -200,6 +200,11 @@ def draft_code(
             # --- PRE-FLIGHT ---
             if start_line is not None and end_line is not None and start_line > end_line:
                 return "Error: start_line cannot be greater than end_line."
+            
+            file_path = Path(path)
+            # Allow creation if instruction contains "create"
+            if not file_path.exists() and "create" not in instruction.lower():
+                return "Error reading file."
 
             # --- 1. TRANSLATION PHASE ---
             instruction = translate_to_english(instruction)
@@ -207,7 +212,6 @@ def draft_code(
                 reference_context = translate_to_english(reference_context)
 
             # --- 2. DATA LOADING ---
-            file_path = Path(path)
             try:
                 target_snippet, full_content = _load_target_snippet(file_path, start_line, end_line)
             except Exception:
