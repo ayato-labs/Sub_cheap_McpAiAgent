@@ -48,18 +48,9 @@ ignore = [
 "src/mcp_ai_worker/list_gemini_models.py" = []
 "tests/*" = []
 
-[tool.semantic_release]
-version_variables = ["mcp_ai_worker/__init__.py:__version__"]
-version_toml = ["pyproject.toml:project.version"]
-upload_to_pypi = false
-upload_to_release = true
-build_command = "uv build"
-
-
 [dependency-groups]
 dev = [
     "pytest",
     "pytest-mock",
     "ruff",
-    "python-semantic-release",
 ]
