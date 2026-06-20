@@ -6,6 +6,7 @@ import socket
 import textwrap
 import tempfile
 import json
+import datetime
 from urllib.parse import urlparse
 
 import httpx
@@ -367,7 +368,8 @@ def _validate_python(code: str) -> Optional[str]:
             # If it's a snippet, it might be indented or just part of a file.
             # Wrap it in a dummy function to check if it's syntactically valid code block
             ast.parse(f"def _dummy():\n{textwrap.indent(code, '    ')}")
-            return None
+    return None
+
         except SyntaxError as e_inner:
             return json.dumps({"error_type": "SyntaxError", "message": str(e_inner), "line": e_inner.lineno})
     except Exception as e:

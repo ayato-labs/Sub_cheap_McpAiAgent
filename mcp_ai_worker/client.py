@@ -3,7 +3,7 @@ import time
 import requests
 import subprocess
 from typing import Optional
-from mcp_ai_worker.logger import logger
+from mcp_ai_worker.logger import logger, log_token_usage
 from google import genai
 
 
@@ -137,6 +137,16 @@ class SubLLMClient:
                     else (0.0 if role_name == "summarization" else (0.1 if role_name != "drafting" else 0.2)),
                 ),
             )
+            
+            # Log token usage
+            if response.usage_metadata:
+                log_token_usage(
+                    "gemini",
+                    model_name,
+                    response.usage_metadata.prompt_token_count or 0,
+                    response.usage_metadata.candidates_token_count or 0,
+                )
+                
             elapsed = time.perf_counter() - start_time
             logger.info(f"Gemini [{role_name}] completed in {elapsed:.2f}s")
             return response.text.strip()
@@ -178,9 +188,19 @@ class SubLLMClient:
                 timeout=90,
             )
             response.raise_for_status()
+            response_text = response.json().get("response", "").strip()
+            
+            # Log estimated token usage
+            log_token_usage(
+                "ollama",
+                model_name,
+                len(prompt) // 4,
+                len(response_text) // 4,
+            )
+            
             elapsed = time.perf_counter() - start_time
             logger.info(f"Ollama [{role_name}] completed in {elapsed:.2f}s")
-            return response.json().get("response", "").strip()
+            return response_text
         except Exception:
             logger.exception(f"Ollama [{role_name}] call failed")
             raise
