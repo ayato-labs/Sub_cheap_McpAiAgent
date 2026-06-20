@@ -12,19 +12,29 @@ This guide explains how to configure and use the **Sub-cheap-McpAiAgent** server
 Create a `.env` file in the project root with the following settings. The system uses a multi-phase LLM approach to optimize tokens:
 
 ```env
-# Google AI Studio
-GOOGLE_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
+# Global Provider Fallback ('gemini', 'ollama', or 'genspark')
+AI_PROVIDER=gemini
 
-# Ollama (Local)
+# Google AI Studio Configuration
+GOOGLE_API_KEY=your_api_key_here
+
+# Ollama Configuration (Local LLM fallback)
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=gemma2:9b
 
-# Role-based Model Selection ('gemini' or 'ollama')
-TRANSLATION_MODEL=gemini  # Used for translating Japanese to English and chunking
-DRAFTING_PROVIDER=gemini  # Provider for code drafting ('gemini' or 'ollama')
-DRAFTING_MODEL=gemini     # Used for context compression and actual code drafting
+# Genspark Configuration (Optional search tool)
+GENSPARK_MODEL_TYPE=search
+
+# Role-based Provider & Model Selection (Overrides AI_PROVIDER fallback)
+# Used for Japanese-to-English translation
+TRANSLATION_PROVIDER=gemini
+TRANSLATION_MODEL=models/gemma-4-31b-it
+
+# Used for context compression, code drafting, and URL/log summarization
+DRAFTING_PROVIDER=gemini
+DRAFTING_MODEL=models/gemma-4-31b-it
 ```
+
 
 ## 3. Claude Desktop Configuration
 Since we have switched to **Streamable HTTP (SSE)** to support parallel agent execution, you must run the server independently.
@@ -68,13 +78,14 @@ The Main AI (Claude) will call the tool as follows:
 > [!IMPORTANT]
 > **Path Requirement**: Always use absolute paths for the `path` parameter. Relative paths can lead to errors when the server attempts to read or write files.
 
-## 6. URL Summarization Configuration
+## 5. URL Summarization Configuration
 The `fetch_and_summarize_url` tool uses a sub-LLM to compress web content into a concise summary.
 - **Static Content Only**: The tool utilizes `beautifulsoup4` and `markdownify` to extract text. It does not execute JavaScript, so Single Page Applications (SPAs) may return empty or incomplete content.
 - **Markdown Formatting**: The extracted content is converted to clean Markdown before being sent to the LLM to maintain structural integrity while minimizing token usage.
 - **Instructional Focus**: You can provide an optional `instruction` parameter to tell the sub-LLM what specific information to look for (e.g., "Focus on the API authentication section").
 
-## 5. Traceability & Logs
+## 6. Traceability & Logs
 - **mcp_server.log**: Contains structured JSON logs of the last 2 runs.
 - **error.log**: Dedicated log file for error isolation.
 - **run_id**: Each request is tagged with a unique UUID for easy tracking.
+

@@ -208,8 +208,6 @@ def draft_code(
 
             # --- 2. DATA LOADING ---
             file_path = Path(path)
-            if not file_path.exists():
-                return f"Error reading file. File does not exist: {path}"
             try:
                 target_snippet, full_content = _load_target_snippet(file_path, start_line, end_line)
             except Exception:

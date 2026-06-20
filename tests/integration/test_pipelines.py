@@ -38,7 +38,7 @@ def test_execute_command_integration_short_log(tmp_path, mock_llm):
 
 def test_execute_command_integration_long_log_summarization(tmp_path, mock_llm):
     # Force a long log via a loop
-    long_cmd = 'powershell -Command "for($i=1; $i -le 50; $i++) { Write-Output "line $i" }"'
+    long_cmd = "python -c \"for i in range(1, 51): print(f'line {i}')\""
     mock_llm.return_value = "Summarized: 50 lines of output."
     result = execute_command(command=long_cmd, working_dir=str(tmp_path))
     assert "[Sub-LLM Log Summary]" in result
