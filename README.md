@@ -17,7 +17,7 @@ By delegating token-heavy, mechanical tasks—such as drafting repetitive code, 
 As AI agents perform file-wide analysis and compile-run-debug loops, they read and write large files and logs, quickly exhausting your context window and API budget. 
 
 By splitting the workload into the **Architect-Worker Paradigm**, you get:
-*   **Up to 90% Cost Reduction**: Offloads structural coding and translation tasks to free/low-cost tiers.
+*   **Up to 90% Cost Reduction**: Offloads structural coding and translation tasks to free/low-cost tiers (such as Gemini Flash or local Ollama). *Note: The 90% reduction is a theoretical maximum achieved when leveraging prompt caching or local LLMs; single-turn workflows with duplicate full-file reads typically see around 30%-40% reduction.*
 *   **Faster Iteration**: Reduces network payloads and speeds up the core planning loop.
 *   **No Infinite Loops**: Explicitly rejects complex, token-wasting internal QA loops inside the sub-LLM. The Architect AI inspects the draft and corrects integrations directly, keeping it fast and predictable.
 
