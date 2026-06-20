@@ -4,7 +4,9 @@ import re
 import subprocess
 import socket
 import textwrap
+import tempfile
 from urllib.parse import urlparse
+
 import httpx
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
@@ -320,20 +322,57 @@ def _write_back_changes(
         return f"✅ Successfully wrote to '{file_path.name}' using {model_id}."
 
 
+def _validate_python(code: str) -> Optional[str]:
+    try:
+        # Try parsing as a whole module
+        ast.parse(code)
+        return None
+    except SyntaxError:
+        try:
+            # If it's a snippet, it might be indented or just part of a file.
+            # Wrap it in a dummy function to check if it's syntactically valid code block
+            ast.parse(f"def _dummy():\n{textwrap.indent(code, '    ')}")
+            return None
+        except SyntaxError as e:
+            return f"SyntaxError: {e}"
+
+
+def _validate_with_command(code: str, command: list[str]) -> Optional[str]:
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.tmp') as f:
+            f.write(code)
+            temp_path = f.name
+        
+        result = subprocess.run(
+            command + [temp_path],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return f"Syntax Error: {result.stderr or result.stdout}"
+        return None
+    except FileNotFoundError:
+        # Tool not installed, skip check
+        return None
+    except Exception as e:
+        return f"Validation error: {e}"
+    finally:
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
 def validate_syntax(code: str, file_path: Path) -> Optional[str]:
     """Validates the syntax of the generated code."""
-    if file_path.suffix == ".py":
-        try:
-            # Try parsing as a whole module
-            ast.parse(code)
-            return None
-        except SyntaxError:
-            try:
-                # If it's a snippet, it might be indented or just part of a file.
-                # Wrap it in a dummy function to check if it's syntactically valid code block
-                ast.parse(f"def _dummy():\n{textwrap.indent(code, '    ')}")
-                return None
-            except SyntaxError as e:
-                return f"SyntaxError: {e}"
-    # Add other languages here in the future
+    ext = file_path.suffix
+    
+    if ext == ".py":
+        return _validate_python(code)
+    elif ext == ".php":
+        return _validate_with_command(code, ["php", "-l"])
+    elif ext in [".c", ".h"]:
+        return _validate_with_command(code, ["gcc", "-fsyntax-only"])
+    # Note: Go, Rust, Java, Typescript need proper project setup for full checks.
+    # For now, we skip them or use very basic checks if available.
+    
     return None
