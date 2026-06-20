@@ -32,7 +32,6 @@ line-length = 100
 select = ["E", "F", "B", "T20", "C90"]
 # Realistic Compromise: Ignore rules that don't affect behavior
 ignore = [
-    "E501", # Line too long
     "T201", # print found
     "C901", # Complexity
 ]

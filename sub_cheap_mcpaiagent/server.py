@@ -1,17 +1,28 @@
 import os
 import time
 import uuid
-import requests
 import subprocess
 import sys
 import json
-import re
 from typing import Optional
 from pathlib import Path
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from loguru import logger
-from google import genai
+
+# Import sub-modules
+from sub_cheap_mcpaiagent.client import SubLLMClient
+from sub_cheap_mcpaiagent.utils import (
+    load_prompt_template,
+    clean_json_output,
+    generate_repo_map,
+    extract_target_block,
+    translate_to_english,
+    compress_context,
+    clean_code_output,
+    _load_target_snippet,
+    _write_back_changes,
+)
 
 # Load environment variables
 load_dotenv(override=True)
@@ -23,373 +34,6 @@ mcp = FastMCP("Sub-cheap-McpAiAgent")
 logger.remove()
 logger.add("mcp_server.log", rotation="10 MB", retention=2, serialize=True, level="DEBUG")
 logger.add("error.log", rotation="10 MB", retention=2, serialize=True, level="ERROR")
-
-
-# Sub-LLM Clients
-class SubLLMClient:
-    @staticmethod
-    def get_gemini_client():
-        api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError("GOOGLE_API_KEY is not set in .env")
-        return genai.Client(api_key=api_key)
-
-    @staticmethod
-    def detect_backend(model_id: str, specific_provider: Optional[str] = None) -> str:
-        """Determines the backend based on explicit configuration or fallback heuristic."""
-        if specific_provider:
-            return specific_provider.lower()
-
-        global_provider = os.getenv("AI_PROVIDER", "").lower()
-        if global_provider in ["gemini", "ollama", "genspark"]:
-            return global_provider
-
-        # Fallback heuristic if not explicitly set
-        low_id = model_id.lower()
-        if "gemini" in low_id:
-            return "gemini"
-        if "genspark" in low_id or low_id in ["search", "crawl"]:
-            return "genspark"
-        return "ollama"
-
-    @staticmethod
-    def call_any(
-        model_id: str, prompt: str, role_name: str = "task", provider: Optional[str] = None
-    ) -> str:
-        """Call the appropriate backend based on configuration or model_id."""
-        backend = SubLLMClient.detect_backend(model_id, provider)
-        if backend == "gemini":
-            return SubLLMClient.call_gemini(model_id, prompt, role_name)
-        elif backend == "genspark":
-            return SubLLMClient.call_genspark(model_id, prompt, role_name)
-        else:
-            return SubLLMClient.call_ollama(model_id, prompt, role_name)
-
-    @staticmethod
-    def call_gemini(model_name: str, prompt: str, role_name: str = "task") -> str:
-        client = SubLLMClient.get_gemini_client()
-
-        # Dynamic context check
-        try:
-            model_info = client.models.get(model=model_name)
-            max_tokens = model_info.input_token_limit
-
-            token_count_resp = client.models.count_tokens(model=model_name, contents=prompt)
-            current_tokens = token_count_resp.total_tokens
-
-            logger.info(
-                f"Gemini [{role_name}] ({model_name}) Tokens: {current_tokens}/{max_tokens}"
-            )
-
-            if current_tokens > max_tokens:
-                raise ValueError(
-                    f"Prompt exceeds Gemini context limit: {current_tokens} > {max_tokens}"
-                )
-        except Exception as e:
-            logger.warning(f"Could not verify Gemini context limit for {model_name}: {e}")
-
-        logger.info(f"Calling Gemini ({model_name}) for {role_name}...")
-        try:
-            start_time = time.perf_counter()
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=genai.types.GenerateContentConfig(
-                    temperature=0.1 if role_name != "drafting" else 0.2,
-                ),
-            )
-            elapsed = time.perf_counter() - start_time
-            logger.info(f"Gemini [{role_name}] completed in {elapsed:.2f}s")
-            return response.text.strip()
-        except Exception:
-            logger.exception(f"Gemini [{role_name}] call failed")
-            raise
-
-    @staticmethod
-    def call_ollama(model_name: str, prompt: str, role_name: str = "task") -> str:
-        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-
-        # Dynamic context check for Ollama
-        try:
-            show_resp = requests.post(f"{base_url}/api/show", json={"name": model_name}, timeout=5)
-            if show_resp.status_code == 200:
-                context_limit = 4096  # Conservative default
-                estimated_tokens = len(prompt) // 4
-                logger.info(
-                    f"Ollama [{role_name}] ({model_name}) "
-                    f"Est. Tokens: ~{estimated_tokens}/{context_limit}"
-                )
-                if estimated_tokens > context_limit:
-                    logger.warning(
-                        f"Prompt might exceed Ollama limit: "
-                        f"~{estimated_tokens} > {context_limit}"
-                    )
-        except Exception as e:
-            logger.warning(f"Could not verify Ollama context limit for {model_name}: {e}")
-
-        logger.info(f"Calling Ollama ({model_name}) for {role_name}...")
-        try:
-            start_time = time.perf_counter()
-            response = requests.post(
-                f"{base_url}/api/generate",
-                json={
-                    "model": model_name,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {"temperature": 0.1 if role_name != "drafting" else 0.2},
-                },
-                timeout=90,
-            )
-            response.raise_for_status()
-            elapsed = time.perf_counter() - start_time
-            logger.info(f"Ollama [{role_name}] completed in {elapsed:.2f}s")
-            return response.json().get("response", "").strip()
-        except Exception:
-            logger.exception(f"Ollama [{role_name}] call failed")
-            raise
-
-    @staticmethod
-    def call_genspark(model_name: str, prompt: str, role_name: str = "task") -> str:
-        """Call Genspark CLI (gsk) to get an answer."""
-        gsk_cmd = (
-            model_name
-            if model_name in ["search", "crawl", "img", "video"]
-            else os.getenv("GENSPARK_MODEL_TYPE", "search")
-        )
-        logger.info(f"Calling Genspark ({gsk_cmd}) for {role_name}...")
-
-        command = ["gsk", gsk_cmd, prompt, "--output", "text"]
-
-        try:
-            start_time = time.perf_counter()
-            result = subprocess.run(command, capture_output=True, text=True, check=True)
-            elapsed = time.perf_counter() - start_time
-            logger.info(f"Genspark [{role_name}] completed in {elapsed:.2f}s")
-            return result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            logger.exception(f"Genspark [{role_name}] call failed: {e.stderr}")
-            raise
-
-
-def load_prompt_template(filename: str) -> str:
-    """Loads a prompt template from the prompts directory."""
-    try:
-        prompt_path = Path("prompts") / filename
-        return prompt_path.read_text(encoding="utf-8")
-    except Exception as e:
-        logger.error(f"Failed to load prompt template {filename}: {e}")
-        return ""
-
-def clean_json_output(text: str) -> str:
-    """Extracts JSON block from LLM response."""
-    json_pattern = re.compile(r"```json\s*\n?(.*?)\n?```", re.DOTALL)
-    match = json_pattern.search(text)
-    if match:
-        return match.group(1).strip()
-    # Fallback: try to find first { and last }
-    start_idx = text.find("{")
-    end_idx = text.rfind("}")
-    if start_idx != -1 and end_idx != -1:
-        return text[start_idx : end_idx + 1]
-    return text.strip()
-
-def generate_repo_map(directory: str) -> str:
-    """Generates a signature map of the entire directory using grep-ast"""
-    try:
-        result = subprocess.run(
-            ["grep-ast", ".", "--encoding", "utf-8"],
-            cwd=directory,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        return result.stdout
-    except Exception as e:
-        logger.error(f"Failed to generate repo map: {e}")
-        return ""
-
-def extract_target_block(filepath: str, target_name: str) -> tuple[str, int, int, list[str]]:
-    """
-    Extracts blocks matching the function/class name from the specified file.
-    Simple regex implementation for Python.
-    Return value: (code snippet string, start line, end line, full_content)
-    """
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            full_content = f.readlines()
-
-        content_str = "".join(full_content)
-        # Match 'def function_name(' or 'class ClassName('
-        pattern = rf"^(?:def|class)\s+({re.escape(target_name)})(?:\s*\(|:)"
-        match = re.search(pattern, content_str, re.MULTILINE)
-
-        if not match:
-            return "", 0, 0, full_content
-
-        start_line = content_str.count("\n", 0, match.start()) + 1
-        
-        # Heuristic: find end of block by looking for next definition at same indentation or EOF
-        # This is simplified. In a real scenario, we'd use tree-sitter.
-        start_pos = match.start()
-        line_start_indent = 0
-        # Find the indentation of the matched line
-        current_line_start = content_str.rfind("\n", 0, start_pos) + 1
-        line_content = content_str[current_line_start : match.start()]
-        line_start_indent = len(line_content) - len(line_content.lstrip())
-        
-        # We just take a reasonable chunk or use a simple regex to find next top-level def/class
-        # For now, let's find the next line that starts with 'def ' or 'class ' at 0 indentation
-        # or the end of the file.
-        remaining_text = content_str[match.end():]
-        next_block = re.search(r"^\s*(?:def|class)\s+", remaining_text, re.MULTILINE)
-        
-        if next_block:
-            end_pos = next_block.start()
-        else:
-            end_pos = len(content_str)
-
-        end_line = content_str.count("\n", 0, match.start() + (end_pos - match.end() if next_block else len(content_str) - match.end())) + 1 # This is a bit off, let's simplify.
-        
-        # More accurate line count for end_line
-        snippet = content_str[match.start() : match.start() + (next_block.start() if next_block else len(content_str) - match.end())]
-        # Correct the snippet to include the rest of the match
-        snippet = content_str[match.start() : (match.start() + next_block.start()) if next_block else len(content_str)]
-        
-        # Re-calculate end_line based on snippet
-        end_line = start_line + snippet.count("\n")
-        
-        return snippet, start_line, end_line, full_content
-    except Exception as e:
-        logger.exception(f"Failed to extract target block: {e}")
-        return "", 0, 0, []
-
-def translate_to_english(text: str) -> str:
-    """Chunks text and translates it to English."""
-    if not text or text.isascii():
-        return text
-
-    provider = os.getenv("TRANSLATION_PROVIDER")
-    model_id = os.getenv("TRANSLATION_MODEL", "models/gemma-4-31b-it")
-    chunk_size = 3000
-    chunks = [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
-    translated_chunks = []
-
-    for i, chunk in enumerate(chunks):
-        prompt = (
-            "Translate the following text to English. If it is already in English, return it exactly as is.\n"
-            "Maintain technical terms and code structure. Output ONLY the translated text.\n\n"
-            f"TEXT:\n{chunk}"
-        )
-        logger.info(f"Translating chunk {i + 1}/{len(chunks)}...")
-        translated_chunks.append(
-            SubLLMClient.call_any(model_id, prompt, role_name="translation", provider=provider)
-        )
-
-    return "\n".join(translated_chunks)
-
-
-def compress_context(instruction: str, context: str) -> str:
-    """Compresses the reference context to fit into the model's window."""
-    provider = os.getenv("DRAFTING_PROVIDER")
-    model_id = os.getenv("DRAFTING_MODEL", "models/gemma-4-31b-it")
-    prompt = (
-        "You are a context compression expert. Your goal is to shrink the following reference code\n"
-        "to be as concise as possible while retaining all structural information (function signatures,\n"
-        "class definitions, key variable types) and logic necessary for the instruction below.\n"
-        "Remove unnecessary comments, long strings, or unrelated logic. Output ONLY the compressed code.\n\n"
-        f"### Instruction:\n{instruction}\n\n"
-        f"### Reference Code:\n{context}"
-    )
-    logger.info("Compressing long context...")
-    return SubLLMClient.call_any(model_id, prompt, role_name="compression", provider=provider)
-
-
-def clean_code_output(text: str) -> str:
-    """
-    A robust code parsing function.
-    It performs multi-stage extraction of XML tags, removal of Markdown, and cleansing of noise (explanatory text).
-    """
-    if not text:
-        return ""
-
-    cleaned = text.strip()
-
-    # 1. Extraction by XML tag (<draft_output>)
-    xml_pattern = re.compile(r"<draft_output>\s*\n?(.*?)\n?\s*</draft_output>", re.DOTALL | re.IGNORECASE)
-    match = xml_pattern.search(cleaned)
-    if match:
-        cleaned = match.group(1).strip()
-    else:
-        # Fallback: Recovery when tags are not closed due to token restrictions, etc.
-        partial_xml_pattern = re.compile(r"<draft_output>\s*\n?(.*)", re.DOTALL | re.IGNORECASE)
-        partial_match = partial_xml_pattern.search(cleaned)
-        if partial_match:
-            logger.warning("Unclosed <draft_output> tag detected. Rescuing partial content.")
-            cleaned = partial_match.group(1).strip()
-
-    # 2. Removing Markdown Code Blocks
-    md_pattern = re.compile(r"```(?:\w+)?\n?(.*?)\n?```", re.DOTALL)
-    md_match = md_pattern.search(cleaned)
-    if md_match:
-        cleaned = md_match.group(1).strip()
-    else:
-        # Fallback: simple stripping if not properly wrapped
-        cleaned = cleaned.replace("```python", "").replace("```", "").strip()
-
-    # 3. Final noise cleansing (only if the result is short and contains common phrases)
-    noise_phrases = ["Here is the updated code", "I have modified", "The following code"]
-    for phrase in noise_phrases:
-        if phrase in cleaned and len(cleaned.splitlines()) < 5:
-            cleaned = cleaned.replace(phrase, "")
-
-    return cleaned.strip()
-
-
-def _load_target_snippet(
-    file_path: Path, start_line: Optional[int], end_line: Optional[int]
-) -> tuple[str, list[str]]:
-    """Reads the target file and extracts the snippet to be modified."""
-    if not file_path.exists():
-        return "", []
-
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            full_content = f.readlines()
-
-        if start_line is not None and end_line is not None:
-            s_idx = max(0, start_line - 1)
-            e_idx = min(len(full_content), end_line)
-            return "".join(full_content[s_idx:e_idx]), full_content
-        return "".join(full_content), full_content
-    except Exception:
-        logger.exception(f"Failed to read existing file: {file_path}")
-        raise
-
-
-def _write_back_changes(
-    file_path: Path,
-    generated_code: str,
-    start_line: Optional[int],
-    end_line: Optional[int],
-    full_content: list[str],
-    model_id: str,
-) -> str:
-    """Writes the generated code back to the file, either fully or as a snippet."""
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    if start_line is not None and end_line is not None and full_content:
-        s_idx = max(0, start_line - 1)
-        e_idx = min(len(full_content), end_line)
-        new_lines = generated_code.splitlines(keepends=True)
-        if generated_code and not generated_code.endswith("\n"):
-            new_lines[-1] += "\n"
-        updated_content = full_content[:s_idx] + new_lines + full_content[e_idx:]
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.writelines(updated_content)
-        return f"✅ Updated lines {start_line}-{end_line} in '{file_path.name}' using {model_id}."
-    else:
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(generated_code + ("\n" if not generated_code.endswith("\n") else ""))
-        return f"✅ Successfully wrote to '{file_path.name}' using {model_id}."
 
 
 @mcp.tool()
@@ -418,13 +62,15 @@ def find_and_draft_edit(requirement: str, target_dir: str) -> str:
         model_id = os.getenv("DRAFTING_MODEL", "models/gemma-4-31b-it")
 
         logger.info("Identifying target file and entity...")
-        target_json_str = SubLLMClient.call_any(model_id, finder_prompt, role_name="targeting", provider=provider)
+        target_json_str = SubLLMClient.call_any(
+            model_id, finder_prompt, role_name="targeting", provider=provider
+        )
 
         try:
             target_info = json.loads(clean_json_output(target_json_str))
             filepath = os.path.join(target_dir, target_info["target_file"])
             entity_name = target_info["target_entity"]
-        except Exception as e:
+        except Exception:
             return f"Failed to parse target JSON from Sub-LLM. Raw output: {target_json_str}"
 
         # 3. Pinpoint Extraction
@@ -436,12 +82,17 @@ def find_and_draft_edit(requirement: str, target_dir: str) -> str:
         # Reusing draft_code internal logic via final_prompt
         system_prompt = load_prompt_template("draft_system_prompt.txt")
         if not system_prompt:
-            system_prompt = "You are a coding assistant providing a draft (叩き台) based on specific instructions."
+            system_prompt = (
+                "You are a coding assistant providing a draft (叩き台) based on specific "
+                "instructions."
+            )
         
         final_prompt = f"{system_prompt}\n\nInstruction: {requirement}\n\nCurrent Block:\n{snippet}"
 
         logger.info("Generating code draft...")
-        draft_code_raw = SubLLMClient.call_any(model_id, final_prompt, role_name="drafting", provider=provider)
+        draft_code_raw = SubLLMClient.call_any(
+            model_id, final_prompt, role_name="drafting", provider=provider
+        )
         cleaned_code = clean_code_output(draft_code_raw)
 
         # Write back changes
@@ -457,6 +108,12 @@ def find_and_draft_edit(requirement: str, target_dir: str) -> str:
         total_elapsed = time.perf_counter() - start_total_time
         logger.info(f"{msg} (Total pipeline time: {total_elapsed:.2f}s)")
         return msg
+
+
+@mcp.tool()
+def execute_command(
+    command: str, working_dir: Optional[str] = None, timeout_seconds: int = 90
+) -> str:
     """
     [Architect vs. Part-timer]
     Executes terminal commands, summarizes the resulting lengthy raw logs (standard output/error output) using an inexpensive sub-LLM,
@@ -549,10 +206,10 @@ def draft_code(
     - SUB-LLM is the **Part-timer**: Responsible for localized typing and drafting.
 
     ### Strategy
-    1. Delegate tedious file modifications or first-draft generation to this tool.
-    2. Provide clear instructions and necessary context (reference_context).
-    3. **CRITICAL**: Expect a "draft" (叩き台). The result may have minor logical gaps.
-    4. **CRITICAL**: YOU must review the output and fix any integration issues.
+    - Delegate tedious file modifications or first-draft generation to this tool.
+    - Provide clear instructions and necessary context (reference_context).
+    - **CRITICAL**: Expect a "draft" (叩き台). The result may have minor logical gaps.
+    - **CRITICAL**: YOU must review the output and fix any integration issues.
 
     The pipeline includes auto-translation (JA->EN) and context compression.
     """
