@@ -5,6 +5,7 @@ import requests
 import subprocess
 import sys
 import json
+import re
 from typing import Optional
 from pathlib import Path
 from dotenv import load_dotenv
@@ -170,7 +171,98 @@ class SubLLMClient:
             raise
 
 
-def translate_to_english(text: str) -> str:
+def load_prompt_template(filename: str) -> str:
+    """Loads a prompt template from the prompts directory."""
+    try:
+        prompt_path = Path("prompts") / filename
+        return prompt_path.read_text(encoding="utf-8")
+    except Exception as e:
+        logger.error(f"Failed to load prompt template {filename}: {e}")
+        return ""
+
+def clean_json_output(text: str) -> str:
+    """Extracts JSON block from LLM response."""
+    json_pattern = re.compile(r"```json\s*\n?(.*?)\n?```", re.DOTALL)
+    match = json_pattern.search(text)
+    if match:
+        return match.group(1).strip()
+    # Fallback: try to find first { and last }
+    start_idx = text.find("{")
+    end_idx = text.rfind("}")
+    if start_idx != -1 and end_idx != -1:
+        return text[start_idx : end_idx + 1]
+    return text.strip()
+
+def generate_repo_map(directory: str) -> str:
+    """Generates a signature map of the entire directory using grep-ast"""
+    try:
+        result = subprocess.run(
+            ["grep-ast", ".", "--encoding", "utf-8"],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout
+    except Exception as e:
+        logger.error(f"Failed to generate repo map: {e}")
+        return ""
+
+def extract_target_block(filepath: str, target_name: str) -> tuple[str, int, int, list[str]]:
+    """
+    Extracts blocks matching the function/class name from the specified file.
+    Simple regex implementation for Python.
+    Return value: (code snippet string, start line, end line, full_content)
+    """
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            full_content = f.readlines()
+
+        content_str = "".join(full_content)
+        # Match 'def function_name(' or 'class ClassName('
+        pattern = rf"^(?:def|class)\s+({re.escape(target_name)})(?:\s*\(|:)"
+        match = re.search(pattern, content_str, re.MULTILINE)
+
+        if not match:
+            return "", 0, 0, full_content
+
+        start_line = content_str.count("\n", 0, match.start()) + 1
+        
+        # Heuristic: find end of block by looking for next definition at same indentation or EOF
+        # This is simplified. In a real scenario, we'd use tree-sitter.
+        start_pos = match.start()
+        line_start_indent = 0
+        # Find the indentation of the matched line
+        current_line_start = content_str.rfind("\n", 0, start_pos) + 1
+        line_content = content_str[current_line_start : match.start()]
+        line_start_indent = len(line_content) - len(line_content.lstrip())
+        
+        # We just take a reasonable chunk or use a simple regex to find next top-level def/class
+        # For now, let's find the next line that starts with 'def ' or 'class ' at 0 indentation
+        # or the end of the file.
+        remaining_text = content_str[match.end():]
+        next_block = re.search(r"^\s*(?:def|class)\s+", remaining_text, re.MULTILINE)
+        
+        if next_block:
+            end_pos = next_block.start()
+        else:
+            end_pos = len(content_str)
+
+        end_line = content_str.count("\n", 0, match.start() + (end_pos - match.end() if next_block else len(content_str) - match.end())) + 1 # This is a bit off, let's simplify.
+        
+        # More accurate line count for end_line
+        snippet = content_str[match.start() : match.start() + (next_block.start() if next_block else len(content_str) - match.end())]
+        # Correct the snippet to include the rest of the match
+        snippet = content_str[match.start() : (match.start() + next_block.start()) if next_block else len(content_str)]
+        
+        # Re-calculate end_line based on snippet
+        end_line = start_line + snippet.count("\n")
+        
+        return snippet, start_line, end_line, full_content
+    except Exception as e:
+        logger.exception(f"Failed to extract target block: {e}")
+        return "", 0, 0, []
+
     """Chunks text and translates it to English."""
     if not text or text.isascii():
         return text
@@ -300,7 +392,70 @@ def _write_back_changes(
 
 
 @mcp.tool()
-def execute_and_summarize(command: str, working_dir: Optional[str] = None, timeout_seconds: int = 60) -> str:
+def find_and_draft_edit(requirement: str, target_dir: str) -> str:
+    """
+    [Architect vs. Part-timer]
+    Automatically finds areas to edit throughout the entire directory and creates a draft of the code corrections.
+    Saves the token cost of the main AI reading the entire file.
+    """
+    run_id = str(uuid.uuid4())
+    start_total_time = time.perf_counter()
+
+    with logger.contextualize(run_id=run_id):
+        logger.info(f"Starting auto-find and draft pipeline for dir: {target_dir}")
+
+        # 1. Repo Map Generation
+        repo_map = generate_repo_map(target_dir)
+        if not repo_map:
+            return "Error: Could not generate repository map."
+
+        # 2. Target Inference (Sub-LLM Task 1)
+        finder_prompt = load_prompt_template("target_finder_prompt.txt").format(
+            requirement=requirement, repo_map=repo_map
+        )
+        provider = os.getenv("DRAFTING_PROVIDER")
+        model_id = os.getenv("DRAFTING_MODEL", "models/gemma-4-31b-it")
+
+        logger.info("Identifying target file and entity...")
+        target_json_str = SubLLMClient.call_any(model_id, finder_prompt, role_name="targeting", provider=provider)
+
+        try:
+            target_info = json.loads(clean_json_output(target_json_str))
+            filepath = os.path.join(target_dir, target_info["target_file"])
+            entity_name = target_info["target_entity"]
+        except Exception as e:
+            return f"Failed to parse target JSON from Sub-LLM. Raw output: {target_json_str}"
+
+        # 3. Pinpoint Extraction
+        snippet, start_line, end_line, full_content = extract_target_block(filepath, entity_name)
+        if not snippet:
+            return f"Error: Could not find entity '{entity_name}' in file '{filepath}'."
+
+        # 4. Draft Generation and Writeback (Sub-LLM Task 2)
+        # Reusing draft_code internal logic via final_prompt
+        system_prompt = load_prompt_template("draft_system_prompt.txt")
+        if not system_prompt:
+            system_prompt = "You are a coding assistant providing a draft (叩き台) based on specific instructions."
+        
+        final_prompt = f"{system_prompt}\n\nInstruction: {requirement}\n\nCurrent Block:\n{snippet}"
+
+        logger.info("Generating code draft...")
+        draft_code_raw = SubLLMClient.call_any(model_id, final_prompt, role_name="drafting", provider=provider)
+        cleaned_code = clean_code_output(draft_code_raw)
+
+        # Write back changes
+        msg = _write_back_changes(
+            Path(filepath),
+            cleaned_code,
+            start_line,
+            end_line,
+            full_content,
+            model_id
+        )
+        
+        total_elapsed = time.perf_counter() - start_total_time
+        logger.info(f"{msg} (Total pipeline time: {total_elapsed:.2f}s)")
+        return msg
     """
     [Architect vs. Part-timer]
     Executes terminal commands, summarizes the resulting lengthy raw logs (standard output/error output) using an inexpensive sub-LLM,
