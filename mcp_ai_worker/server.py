@@ -9,6 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from mcp_ai_worker.metrics import track_metrics
+from mcp_ai_worker.logger import logger, setup_logger
 
 # Import sub-modules
 from mcp_ai_worker.client import SubLLMClient
@@ -499,6 +500,7 @@ def fetch_and_summarize_url(url: str, instruction: Optional[str] = None) -> str:
 
 
 def main():
+    setup_logger()
     # We exclusively use Streamable HTTP for parallel support.
     # Hidden fallback: python -m mcp_ai_worker.server stdio (not recommended)
     transport = "http"
