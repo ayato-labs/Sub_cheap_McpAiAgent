@@ -28,6 +28,10 @@ def clean_json_output(text: str) -> str:
         return text[start_idx : end_idx + 1]
     return text.strip()
 
+import ast
+import os
+import subprocess
+
 def generate_repo_map(directory: str) -> str:
     """Generates a signature map of the entire directory using grep-ast"""
     try:
@@ -40,9 +44,22 @@ def generate_repo_map(directory: str) -> str:
         )
         return result.stdout
     except Exception as e:
-        logger.error(f"Failed to generate repo map: {e}")
-        return ""
-
+        logger.error(f"Failed to generate repo map with grep-ast, using AST fallback: {e}")
+        repo_map = []
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.endswith(".py"):
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, directory)
+                    try:
+                        with open(full_path, "r", encoding="utf-8") as f:
+                            tree = ast.parse(f.read())
+                        for node in ast.walk(tree):
+                            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                                repo_map.append(f"{rel_path}:{node.lineno}: {node.name}")
+                    except Exception:
+                        continue
+        return "\n".join(repo_map)
 def extract_target_block(filepath: str, target_name: str) -> tuple[str, int, int, list[str]]:
     """
     Extracts blocks matching the function/class name from the specified file.
@@ -81,7 +98,7 @@ def extract_target_block(filepath: str, target_name: str) -> tuple[str, int, int
             end_pos = len(content_str)
 
         # More accurate line count for end_line
-        snippet = content_str[match.start() : (match.start() + next_block.start()) if next_block else len(content_str)]
+        snippet = content_str[match.start() : (match.end() + next_block.start()) if next_block else len(content_str)]
         
         # Re-calculate end_line based on snippet
         end_line = start_line + snippet.count("\n")
@@ -90,7 +107,6 @@ def extract_target_block(filepath: str, target_name: str) -> tuple[str, int, int
     except Exception as e:
         logger.exception(f"Failed to extract target block: {e}")
         return "", 0, 0, []
-
 def translate_to_english(text: str) -> str:
     """Chunks text and translates it to English."""
     if not text or text.isascii():
