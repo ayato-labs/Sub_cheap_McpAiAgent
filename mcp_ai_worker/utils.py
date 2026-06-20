@@ -135,8 +135,36 @@ def translate_to_english(text: str) -> str:
     return "\n".join(translated_chunks)
 
 
+def ast_compress_python(code: str) -> str:
+    """Compresses Python code by replacing function bodies with '...'."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return code # Cannot parse, return as is
+
+    class BodyTrimmer(ast.NodeTransformer):
+        def visit_FunctionDef(self, node):
+            node.body = [ast.Expr(value=ast.Constant(value='...'))]
+            return node
+        
+        def visit_AsyncFunctionDef(self, node):
+            node.body = [ast.Expr(value=ast.Constant(value='...'))]
+            return node
+            
+        def visit_ClassDef(self, node):
+            # Recurse into class to find methods
+            self.generic_visit(node)
+            return node
+
+    trimmed_tree = BodyTrimmer().visit(tree)
+    return ast.unparse(trimmed_tree)
+
+
 def compress_context(instruction: str, context: str) -> str:
     """Compresses the reference context to fit into the model's window."""
+    # Pre-process with AST-based semantic compression
+    compressed_context = ast_compress_python(context)
+    
     provider = os.getenv("DRAFTING_PROVIDER")
     model_id = os.getenv("DRAFTING_MODEL", "models/gemma-4-31b-it")
     prompt = (
@@ -145,9 +173,9 @@ def compress_context(instruction: str, context: str) -> str:
         "class definitions, key variable types) and logic necessary for the instruction below.\n"
         "Remove unnecessary comments, long strings, or unrelated logic. Output ONLY the compressed code.\n\n"
         f"### Instruction:\n{instruction}\n\n"
-        f"### Reference Code:\n{context}"
+        f"### Reference Code:\n{compressed_context}"
     )
-    logger.info("Compressing long context...")
+    logger.info("Compressing long context with AST pre-processing...")
     return SubLLMClient.call_any(model_id, prompt, role_name="compression", provider=provider)
 
 
