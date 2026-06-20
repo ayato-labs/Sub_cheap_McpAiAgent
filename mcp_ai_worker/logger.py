@@ -27,7 +27,7 @@ def setup_logger():
     logger.add(
         sys.stderr, 
         serialize=True, 
-        level="DEBUG", 
+        level="INFO", 
         backtrace=True, 
         diagnose=True
     )
@@ -38,7 +38,7 @@ def setup_logger():
     logger.add(
         log_path, 
         serialize=True, 
-        level="DEBUG", 
+        level="INFO", 
         backtrace=True, 
         diagnose=True
     )
