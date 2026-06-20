@@ -110,6 +110,12 @@ Runs directory-wide targeting. It scans the repository using `grep-ast` to pinpo
 ### `execute_command`
 Executes terminal commands (e.g. testing, linting) and delegates the lengthy stdout/stderr output to a sub-LLM for a concise summary. Saves valuable context window tokens.
 
+### `fetch_and_summarize_url`
+Extracts text content from a specified HTTPS URL and generates an accurate summary using a sub-LLM, saving token overhead. (Requires static HTML, Single Page Applications are not supported).
+*   **url** (string): Absolute HTTPS URL to fetch.
+*   **instruction** (optional string): Specific focus request for the summary.
+
+
 ---
 
 ## 📄 Architecture Decision Records (ADRs)
