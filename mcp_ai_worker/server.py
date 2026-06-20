@@ -20,6 +20,7 @@ from mcp_ai_worker.utils import (
     translate_to_english,
     compress_context,
     clean_code_output,
+    fetch_and_clean_markdown,
     _load_target_snippet,
     _write_back_changes,
 )
@@ -313,6 +314,70 @@ def draft_code(
         except Exception as e:
             logger.exception("Unexpected fatal error in pipeline")
             return f"Fatal error: {e}"
+
+@mcp.tool()
+def fetch_and_summarize_url(url: str, instruction: Optional[str] = None) -> str:
+    """
+    [Architect vs. Part-timer]
+    Extracts text content from a specified HTTPS URL and generates an accurate summary using a sub-LLM.
+    This saves massive token overhead for YOU (the main AI) by avoiding reading large, raw web pages.
+    
+    CRITICAL WARNING: Pages utilizing client-side dynamic rendering (SPAs) will fail to parse.
+    If a failure occurs, fall back to manual copy-pasting from your host browser.
+    """
+    run_id = str(uuid.uuid4())
+    start_time = time.perf_counter()
+
+    with logger.contextualize(run_id=run_id):
+        logger.info(f"Starting URL fetch and summarize pipeline for: {url}")
+
+        # 1. Content fetching and structural cleansing
+        try:
+            markdown_content = fetch_and_clean_markdown(url)
+        except ValueError as e:
+            return f"Tool Execution Failed: {str(e)}"
+        except Exception as e:
+            logger.exception("Unexpected error during HTML fetching")
+            return f"System Error: Failed to fetch the URL content. {e}"
+
+        # 2. Construct strict, ground-truth anchored prompt
+        summary_prompt = (
+            "You are a strict factual summarization assistant.\n"
+            "Read the following web page content provided in Markdown format.\n"
+            "Summarize the core points accurately based ONLY on the provided text.\n"
+            "Do NOT invent facts, do NOT assume or extrapolate.\n"
+            "Structure the output in clean Markdown format using bullet points.\n\n"
+        )
+        
+        if instruction:
+            # Leverage the existing translation pipeline
+            instruction_en = translate_to_english(instruction)
+            summary_prompt += f"### Specific Focus Request from Architect:\n{instruction_en}\n\n"
+        
+        summary_prompt += f"### WEB CONTENT (.md):\n{markdown_content}"
+
+        provider = os.getenv("DRAFTING_PROVIDER")
+        model_id = os.getenv("DRAFTING_MODEL", "models/gemma-4-31b-it")
+
+        logger.info("Delegating summary to Sub-LLM with deterministic constraints (temperature=0.0)...")
+        
+        # 3. Invoke Sub-LLM with a deterministic zero-temperature setting
+        try:
+            summary = SubLLMClient.call_any(
+                model_id, 
+                summary_prompt, 
+                role_name="summarization", 
+                provider=provider,
+                temperature=0.0  # Rigidly enforce factual constraint
+            )
+        except Exception as e:
+            logger.exception("Failed to summarize content")
+            return f"Summarization failed: {e}"
+
+        elapsed = time.perf_counter() - start_time
+        logger.info(f"URL successfully summarized. (Time: {elapsed:.2f}s)")
+        
+        return f"URL Successfully Summarized.\n\n[Sub-LLM Web Summary]\n{summary}"
 
 def main():
     # We exclusively use Streamable HTTP for parallel support.

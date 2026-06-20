@@ -1,6 +1,11 @@
 import os
 import re
 import subprocess
+import socket
+from urllib.parse import urlparse
+import httpx
+from bs4 import BeautifulSoup
+from markdownify import markdownify as md
 from pathlib import Path
 from typing import Optional
 from mcp_ai_worker.logger import logger
@@ -145,6 +150,60 @@ def compress_context(instruction: str, context: str) -> str:
     )
     logger.info("Compressing long context...")
     return SubLLMClient.call_any(model_id, prompt, role_name="compression", provider=provider)
+
+def is_safe_url(url: str) -> bool:
+    """Validates the URL protocol and protects against SSRF."""
+    if not url.startswith("https://"):
+        return False
+    try:
+        hostname = urlparse(url).hostname
+        if not hostname:
+            return False
+        ip = socket.gethostbyname(hostname)
+        # Block loopback and private networks
+        if ip.startswith("127.") or ip.startswith("10.") or ip.startswith("192.168."):
+            return False
+        return True
+    except Exception:
+        return False
+
+def fetch_and_clean_markdown(url: str, timeout: float = 10.0) -> str:
+    """Fetches HTML, decomposes noisy elements, and converts the core to Markdown."""
+    if not is_safe_url(url):
+        raise ValueError("Security Error: Invalid or insecure URL.")
+
+    # 1. Fetch static HTML
+    with httpx.Client(timeout=timeout) as client:
+        response = client.get(url, follow_redirects=True)
+        response.raise_for_status()
+        html_content = response.text
+
+    soup = BeautifulSoup(html_content, "html.parser")
+
+    # 2. Narrow down the target container
+    target = soup.find('article') or soup.find('main') or soup.find('body')
+    if not target:
+        raise ValueError("Extraction Error: Could not find a suitable content container.")
+
+    # 3. Decompose noisy elements
+    exclude_tags = ['script', 'style', 'nav', 'footer', 'header', 'noscript', 'aside', 'form']
+    for tag in target.find_all(exclude_tags):
+        tag.decompose()
+
+    # 4. Convert HTML subtree to Markdown
+    raw_md = md(str(target), heading_style="ATX")
+
+    # 5. Compress consecutive whitespaces and newlines to save tokens
+    cleaned_md = re.sub(r'\n\s+\n', '\n\n', raw_md)
+    cleaned_md = re.sub(r'\n{3,}', '\n\n', cleaned_md)
+    cleaned_md = cleaned_md.strip()
+
+    # SPA Detection: Fail fast if the extracted context is too shallow
+    if len(cleaned_md) < 100:
+        logger.warning(f"Possible SPA or empty content detected for URL: {url}")
+        raise ValueError("Extraction Error: Content is too short or the page is a dynamic SPA.")
+
+    return cleaned_md
 
 def clean_code_output(text: str) -> str:
     """

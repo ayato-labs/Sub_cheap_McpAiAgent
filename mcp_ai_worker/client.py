@@ -94,19 +94,19 @@ class SubLLMClient:
 
     @staticmethod
     def call_any(
-        model_id: str, prompt: str, role_name: str = "task", provider: Optional[str] = None
+        model_id: str, prompt: str, role_name: str = "task", provider: Optional[str] = None, temperature: Optional[float] = None
     ) -> str:
         """Call the appropriate backend based on configuration or model_id."""
         backend = SubLLMClient.detect_backend(model_id, provider)
         if backend == "gemini":
-            return SubLLMClient.call_gemini(model_id, prompt, role_name)
+            return SubLLMClient.call_gemini(model_id, prompt, role_name, temperature)
         elif backend == "genspark":
             return SubLLMClient.call_genspark(model_id, prompt, role_name)
         else:
-            return SubLLMClient.call_ollama(model_id, prompt, role_name)
+            return SubLLMClient.call_ollama(model_id, prompt, role_name, temperature)
 
     @staticmethod
-    def call_gemini(model_name: str, prompt: str, role_name: str = "task") -> str:
+    def call_gemini(model_name: str, prompt: str, role_name: str = "task", temperature: Optional[float] = None) -> str:
         client = SubLLMClient.get_gemini_client()
 
         # Dynamic context check
@@ -135,7 +135,7 @@ class SubLLMClient:
                 model=model_name,
                 contents=prompt,
                 config=genai.types.GenerateContentConfig(
-                    temperature=0.0 if role_name == "summarization" else (0.1 if role_name != "drafting" else 0.2),
+                    temperature=temperature if temperature is not None else (0.0 if role_name == "summarization" else (0.1 if role_name != "drafting" else 0.2)),
                 ),
             )
             elapsed = time.perf_counter() - start_time
@@ -146,7 +146,7 @@ class SubLLMClient:
             raise
 
     @staticmethod
-    def call_ollama(model_name: str, prompt: str, role_name: str = "task") -> str:
+    def call_ollama(model_name: str, prompt: str, role_name: str = "task", temperature: Optional[float] = None) -> str:
         base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
         # Dynamic context check for Ollama
@@ -176,7 +176,8 @@ class SubLLMClient:
                     "model": model_name,
                     "prompt": prompt,
                     "stream": False,
-                     "options": {"temperature": 0.0 if role_name == "summarization" else (0.1 if role_name != "drafting" else 0.2)},
+                     "options": {"temperature": temperature if temperature is not None else (0.0 if role_name == "summarization" else (0.1 if role_name != "drafting" else 0.2))},
+
                 },
                 timeout=90,
             )
